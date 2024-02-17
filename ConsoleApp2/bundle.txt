@@ -1,0 +1,252 @@
+Author: galia brami
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+namespace ConsoleApp2
+{
+    public class HtmlElement
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public Dictionary<string, string> Attributes { get; set; } = new Dictionary<string, string>();
+        public List<string> Classes { get; set; }
+        public string InnerHtml { get; set; }
+        public HtmlElement Parent { get; set; }
+        public List<HtmlElement> Children { get; set; }
+        public HtmlElement()
+        {
+            Id = "";
+            Name = "";
+            Attributes = new Dictionary<string, string>();
+            Classes = new List<string>();
+            InnerHtml = "";
+            Children = new List<HtmlElement>();
+        }
+        public IEnumerable<HtmlElement> Descendants()
+        {
+            Queue<HtmlElement> q = new Queue<HtmlElement>();
+            q.Enqueue(this);
+            while (q.Count > 0)
+            {
+                HtmlElement el = q.Dequeue();
+                foreach (var c in el.Children)
+                {
+                    yield return c;
+                    q.Enqueue(c);
+                }
+            }
+        }
+        public IEnumerable<HtmlElement> Ancestors()
+        {
+            HtmlElement parent = this.Parent;
+            while (parent != null)
+            {
+                yield return parent;
+                parent = parent.Parent;
+            }
+        }
+        public HashSet<HtmlElement> FindElBySelector(Selector s)
+        {
+            HashSet<HtmlElement> hsEls = new HashSet<HtmlElement>();
+            foreach (var el in Descendants())
+            {
+                RecoursFind(this, s, hsEls);
+            }
+            return hsEls;
+        }
+        private void RecoursFind(HtmlElement htmlElement, Selector s, HashSet<HtmlElement> hsEls)
+        {
+            //    if (s.Child == null)
+            //        return;
+            //    if(IsWantedElement(htmlElement, s))
+            //        hsEls.Add(htmlElement);
+            //    foreach(var el in hsEls)
+            //        RecoursFind(el, s.Child, hsEls);
+            if (s == null)
+                return;
+            if (!IsWantedElement(htmlElement, s))
+                return;
+            if (s.Child == null)
+                hsEls.Add(htmlElement);
+            foreach (var el in Descendants())
+            {
+                RecoursFind(el, s.Child, hsEls);
+            }
+        }
+        private bool IsWantedElement(HtmlElement hElm, Selector s)
+        {
+            return ((s.Id == null || hElm.Id == s.Id) &&
+                    (s.Classes == null || s.Classes.Count == 0 || hElm.Classes == s.Classes) &&
+                    (s.TagName == null || hElm.Name == s.TagName));
+        }
+        public override string ToString()
+        {
+            string s = "<" + Name + " ";
+            if (Id != "")
+                s += "id = " + Id;
+            if (Classes.Count > 0)
+            {
+                s += " class= ";
+                foreach (string c in Classes)
+                    s += c + " ";
+            }
+            //s += "attr: ";
+            foreach (var atr in Attributes)
+                s += atr.Key + " =\"" + atr.Value + "\" ";
+            if (HtmlHelper.Instance.SingleTags.Contains(Name))
+                s += "/";
+            //if (HtmlHelper.Instance.Tags.Contains(Name))
+            //    s += ">" + InnerHtml + "<" + Name + ">";
+            return s+">";
+        }
+    }
+}
+# Source: .\ConsoleApp2\HtmlElement.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Text.Json;
+namespace ConsoleApp2
+{
+    public class HtmlHelper
+    {
+        private readonly static HtmlHelper _instance=new HtmlHelper();
+        public static HtmlHelper Instance => _instance;
+        public string[] Tags { get; set; }
+        public string[] SingleTags { get; set; }
+        private HtmlHelper()
+        {
+            var content = File.ReadAllText("C:\\Users\\יונתן\\OneDrive\\מסמכים\\גליה\\יג תכנות\\פרקטיקוד\\ConsoleApp2\\ConsoleApp2\\jsonFiles\\HtmlTags.json");
+            var contentS = File.ReadAllText("C:\\Users\\יונתן\\OneDrive\\מסמכים\\גליה\\יג תכנות\\פרקטיקוד\\ConsoleApp2\\ConsoleApp2\\jsonFiles\\HtmlVoidTags.json");
+            Tags=JsonSerializer.Deserialize<string[]>(content);
+            SingleTags=JsonSerializer.Deserialize<string[]>(contentS);
+        }
+    }
+}
+# Source: .\ConsoleApp2\HtmlHelper.cs
+using ConsoleApp2;
+using System.Text.RegularExpressions;
+var html = await Load("https://chat.openai.com");
+//מוחק את כל הרווחים המיותרים לא כולל רווח רגיל!
+var cleanHtml = new Regex("[\\r\\n\\t]").Replace(new Regex("\\s{2,}").Replace(html, ""), "");
+var htmlLines= new Regex("<(.*?)>").Split(cleanHtml).Where(s=>s.Length > 0).ToList();
+HtmlElement rootElement= NewHtmlElement(htmlLines[1].Split(' ')[0], null, htmlLines[1]);
+rootElement = BuildTree(rootElement, htmlLines.Skip(2).ToList());
+PrintTree(rootElement);
+Console.WriteLine("-------------------------------------------------------");
+Selector s=new Selector();
+var list = rootElement.FindElBySelector(s.QueryStringToSelector("html head meta"));
+foreach (var element in list)
+    Console.WriteLine(element);
+static void PrintTree(HtmlElement element, string s="\t")
+{if(element == null) return;
+    Console.WriteLine($"{s}{element}");
+    foreach (var child in element.Children)
+        PrintTree(child, s + "\t");
+}
+static HtmlElement NewHtmlElement(string tagName, HtmlElement parent, string line)
+{
+    HtmlElement newElm = new HtmlElement { Name = tagName, Parent = parent };
+    var attributes = new Regex("([^\\s]*?)=\"(.*?)\"").Matches(line);
+    foreach (var a in attributes)
+    {
+        string attributeName = a.ToString().Split('=')[0];
+        string attributeValue = a.ToString().Split('=')[1].Replace("\"", "");
+        if (attributeName.ToLower() == "class")
+            newElm.Classes.AddRange(attributeValue.Split(' '));
+        else if (attributeName.ToLower() == "id")
+            newElm.Id = attributeValue;
+        else newElm.Attributes.Add(attributeName, attributeValue);
+    }
+    return newElm;
+};
+async Task<string> Load(string url)
+{
+    HttpClient client = new HttpClient();
+    var response = await client.GetAsync(url);
+    var html = await response.Content.ReadAsStringAsync();
+    return html;
+}
+static HtmlElement BuildTree(HtmlElement rootElement, List<string> htmlLines) 
+{
+   HtmlElement currentElement = rootElement;
+    foreach (string line in htmlLines)
+    {
+        var tag = line.Split(' ')[0];
+        if (tag == "/html")
+            break;
+        if (tag.StartsWith("/"))
+        {
+            currentElement = currentElement.Parent;
+            continue;
+        }
+        if (!HtmlHelper.Instance.Tags.Contains(tag))
+        {
+            currentElement.InnerHtml += line;
+            continue;
+        }
+        HtmlElement newElement = NewHtmlElement(tag,currentElement,line);
+        currentElement.Children.Add(newElement);
+        if (!HtmlHelper.Instance.SingleTags.Contains(tag) && !line.EndsWith("/"))
+            currentElement = newElement;
+    }
+    return rootElement;
+}
+# Source: .\ConsoleApp2\Program.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+namespace ConsoleApp2
+{
+    public class Selector
+    {
+        public string TagName { get; set; }
+        public string Id { get; set; }
+        public List<string> Classes { get; set; }
+        public Selector Parent { get; set; }
+        public Selector Child { get; set; }
+        public Selector()
+        {
+            Classes = new List<string>();
+        }
+        public Selector QueryStringToSelector(string htmlQueryString)
+        {
+            List<string> htmlQuery = htmlQueryString.Split(" ").ToList();
+            Selector root = NewSelector(htmlQuery[0],null);
+            Selector currentElement = root;
+            htmlQuery.RemoveAt(0);
+            foreach (string level in htmlQuery)
+            {
+                Selector newSelector=NewSelector(level,currentElement);
+                currentElement.Child = newSelector;
+                currentElement=newSelector;
+            }
+            return root;
+        }
+        private static Selector NewSelector(string query,Selector parent)
+        {
+            Selector selector = new Selector(){ Parent=parent };
+            string[] selectorParts=new Regex("(?=[#\\.])").Split(query).Where(s => s.Length > 0).ToArray(); 
+            foreach(string selectorPart in selectorParts)
+            {
+                if(selectorPart.StartsWith("."))
+                    selector.Classes.Add(selectorPart.Substring(1));
+                else if(selectorPart.StartsWith("#"))
+                    selector.Id=selectorPart.Substring(1);
+                else if (!HtmlHelper.Instance.Tags.Contains(selectorPart) || !HtmlHelper.Instance.Tags.Contains(selectorPart))
+                    throw new Exception("invalid tag name");
+                else
+                    selector.TagName=selectorPart;
+            }
+            return selector;
+        }
+    }
+}
+# Source: .\ConsoleApp2\Selector.cs
